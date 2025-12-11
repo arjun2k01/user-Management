@@ -1,24 +1,49 @@
-// routes/authRoutes.js
 import express from "express";
 import {
-  register,
+  signup,
   login,
-  forgotPassword,
+  logout,
   changePassword,
-  getMe,
+  forgotPassword,
 } from "../controllers/authController.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
-import { protect } from "../middleware/authMiddleware.js";
+import {
+  validateSignup,
+  validateLogin,
+  validateChangePassword,
+  handleValidationErrors,
+} from "../middleware/validation.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
 
 const router = express.Router();
 
-// Apply rate limit to sensitive auth endpoints
-router.post("/register", authLimiter, register);
-router.post("/login", authLimiter, login);
-router.post("/forgot-password", authLimiter, forgotPassword);
+router.post(
+  "/signup",
+  authLimiter,
+  ...validateSignup,
+  handleValidationErrors,
+  asyncHandler(signup)
+);
 
-// Protected routes
-router.post("/change-password", protect, changePassword);
-router.get("/me", protect, getMe);
+router.post(
+  "/login",
+  authLimiter,
+  ...validateLogin,
+  handleValidationErrors,
+  asyncHandler(login)
+);
+
+router.post("/logout", authMiddleware, asyncHandler(logout));
+
+router.post(
+  "/change-password",
+  authMiddleware,
+  ...validateChangePassword,
+  handleValidationErrors,
+  asyncHandler(changePassword)
+);
+
+router.post("/forgot-password", authLimiter, asyncHandler(forgotPassword));
 
 export default router;

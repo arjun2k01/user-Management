@@ -1,13 +1,6 @@
-// src/components/Users/UserTable.jsx
-
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Edit2,
-  Trash2,
-  Shield,
-  User as UserIcon,
-} from "lucide-react";
+import { Edit2, Trash2, Shield, User as UserIcon } from "lucide-react";
 
 const roleBadgeClasses = (role) => {
   switch (role) {
@@ -96,9 +89,10 @@ const UserTable = ({
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.18, delay: idx * 0.02 }}
                   className={`grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_80px] items-center px-4 py-3 text-xs
-                    ${isYou
-                      ? "bg-emerald-50/70 dark:bg-emerald-500/5"
-                      : "bg-white dark:bg-slate-950"
+                    ${
+                      isYou
+                        ? "bg-emerald-50/70 dark:bg-emerald-500/5"
+                        : "bg-white dark:bg-slate-950"
                     }
                     hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors`}
                 >
@@ -174,9 +168,7 @@ const UserTable = ({
                         onUpdateUser &&
                         onUpdateUser(user._id, {
                           role:
-                            user.role === "admin"
-                              ? "user"
-                              : "admin",
+                            user.role === "admin" ? "user" : "admin",
                         })
                       }
                       className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"

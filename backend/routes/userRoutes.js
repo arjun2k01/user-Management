@@ -1,17 +1,36 @@
-// routes/userRoutes.js
 import express from "express";
 import {
   getUsers,
   updateUser,
   deleteUser,
 } from "../controllers/userController.js";
-import { protect, requireAdmin } from "../middleware/authMiddleware.js";
+import { authMiddleware, requireAdmin } from "../middleware/authMiddleware.js";
+import {
+  validateUserIdParam,
+  validateUserUpdate,
+  handleValidationErrors,
+} from "../middleware/validation.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
 
 const router = express.Router();
 
-// All these are admin-only
-router.get("/", protect, requireAdmin, getUsers);
-router.put("/:id", protect, requireAdmin, updateUser);
-router.delete("/:id", protect, requireAdmin, deleteUser);
+router.use(authMiddleware, requireAdmin);
+
+router.get("/", asyncHandler(getUsers));
+
+router.put(
+  "/:id",
+  ...validateUserIdParam,
+  ...validateUserUpdate,
+  handleValidationErrors,
+  asyncHandler(updateUser)
+);
+
+router.delete(
+  "/:id",
+  ...validateUserIdParam,
+  handleValidationErrors,
+  asyncHandler(deleteUser)
+);
 
 export default router;

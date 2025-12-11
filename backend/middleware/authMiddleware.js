@@ -1,46 +1,42 @@
-// middleware/authMiddleware.js
 import jwt from "jsonwebtoken";
-import { User } from "../models/User.js";
+import User from "../models/User.js";
 
-export const protect = async (req, res, next) => {
+export const authMiddleware = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, message: "Not authorized" });
+    const token =
+      req.cookies?.token ||
+      (req.headers.authorization?.startsWith("Bearer ")
+        ? req.headers.authorization.split(" ")[1]
+        : null);
+
+    if (!token) {
+      const err = new Error("Not authenticated");
+      err.statusCode = 401;
+      throw err;
     }
 
-    const token = authHeader.split(" ")[1];
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new Error("JWT_SECRET is not defined");
-    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
 
-    const decoded = jwt.verify(token, secret);
-
-    const user = await User.findById(decoded.userId).select("-password");
     if (!user) {
-      return res.status(401).json({ success: false, message: "User not found" });
+      const err = new Error("User not found");
+      err.statusCode = 401;
+      throw err;
     }
 
-    req.user = {
-      id: user._id.toString(),
-      role: user.role,
-      email: user.email,
-      name: user.name,
-    };
-
+    req.user = user;
     next();
   } catch (err) {
-    console.error("Auth error:", err.message);
-    return res.status(401).json({ success: false, message: "Token invalid or expired" });
+    err.statusCode = err.name === "JsonWebTokenError" ? 401 : err.statusCode;
+    next(err);
   }
 };
 
 export const requireAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
-    return res
-      .status(403)
-      .json({ success: false, message: "Admin access required" });
+    const err = new Error("Admin access required");
+    err.statusCode = 403;
+    return next(err);
   }
   next();
 };

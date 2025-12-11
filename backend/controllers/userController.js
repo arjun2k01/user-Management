@@ -1,22 +1,9 @@
-// controllers/userController.js
-import { User } from "../models/User.js";
-import { isValidObjectId } from "../utils/validateObjectId.js";
+import User from "../models/User.js";
 
-const sanitizeUser = (user) => ({
-  _id: user._id,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  status: user.status,
-  createdAt: user.createdAt,
-  updatedAt: user.updatedAt,
-});
-
-// GET /api/v1/users
 export const getUsers = async (req, res) => {
   const {
     page = 1,
-    limit = 10,
+    limit = 5,
     search = "",
     role = "All",
     status = "All",
@@ -24,121 +11,79 @@ export const getUsers = async (req, res) => {
     sortOrder = "desc",
   } = req.query;
 
-  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
-  const perPage = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
-  const skip = (currentPage - 1) * perPage;
-
-  const filter = {};
+  const filters = {};
 
   if (search) {
-    const regex = new RegExp(search, "i");
-    filter.$or = [{ name: regex }, { email: regex }];
+    filters.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+    ];
   }
 
-  if (role && role !== "All") {
-    filter.role = role;
+  if (role !== "All") {
+    filters.role = role;
   }
 
-  if (status && status !== "All") {
-    filter.status = status;
+  if (status !== "All") {
+    filters.status = status;
   }
 
-  // ensure stable sort (include _id)
-  const sortField = ["name", "email", "createdAt"].includes(sortBy)
-    ? sortBy
-    : "createdAt";
+  const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-  const order = sortOrder === "asc" ? 1 : -1;
-  const sortOption = { [sortField]: order, _id: 1 };
+  const pageNum = Number(page);
+  const limitNum = Number(limit);
 
-  const [total, users] = await Promise.all([
-    User.countDocuments(filter),
-    User.find(filter)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(perPage)
-      .select("-password"),
+  const [users, total] = await Promise.all([
+    User.find(filters)
+      .sort(sort)
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum),
+    User.countDocuments(filters),
   ]);
 
-  const totalPages = Math.max(Math.ceil(total / perPage) || 1, 1);
-
-  return res.json({
-    success: true,
-    users: users.map(sanitizeUser),
+  res.json({
+    users,
+    page: pageNum,
+    totalPages: Math.ceil(total / limitNum) || 1,
     total,
-    page: currentPage,
-    totalPages,
   });
 };
 
-// PUT /api/v1/users/:id
 export const updateUser = async (req, res) => {
   const { id } = req.params;
-
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({ success: false, message: "Invalid user ID" });
-  }
-
-  const allowedFields = ["name", "email", "role", "status"];
-  const updates = {};
-
-  for (const key of allowedFields) {
-    if (key in req.body) {
-      updates[key] = req.body[key];
-    }
-  }
-
-  if (updates.email) {
-    updates.email = updates.email.toLowerCase();
-  }
+  const { name, role, status } = req.body;
 
   const user = await User.findById(id);
   if (!user) {
-    return res.status(404).json({ success: false, message: "User not found" });
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
   }
 
-  // Avoid demoting yourself accidentally from admin in UI weirdness
-  if (user._id.toString() === req.user.id && updates.role && updates.role !== "admin") {
-    return res.status(400).json({
-      success: false,
-      message: "You cannot change your own role away from admin",
-    });
-  }
+  if (name !== undefined) user.name = name;
+  if (role !== undefined) user.role = role;
+  if (status !== undefined) user.status = status;
 
-  Object.assign(user, updates);
   await user.save();
 
-  return res.json({
-    success: true,
-    message: "User updated successfully",
-    user: sanitizeUser(user),
-  });
+  res.json({ user });
 };
 
-// DELETE /api/v1/users/:id
 export const deleteUser = async (req, res) => {
   const { id } = req.params;
 
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({ success: false, message: "Invalid user ID" });
+  if (req.user._id.toString() === id) {
+    const err = new Error("You cannot delete your own account");
+    err.statusCode = 400;
+    throw err;
   }
 
-  if (id === req.user.id) {
-    return res.status(400).json({
-      success: false,
-      message: "You cannot delete your own account from this endpoint",
-    });
+  const result = await User.findByIdAndDelete(id);
+  if (!result) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
   }
 
-  const user = await User.findById(id);
-  if (!user) {
-    return res.status(404).json({ success: false, message: "User not found" });
-  }
-
-  await user.deleteOne();
-
-  return res.json({
-    success: true,
-    message: "User deleted successfully",
-  });
+  res.json({ message: "User deleted" });
 };

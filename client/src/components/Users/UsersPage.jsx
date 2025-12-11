@@ -1,5 +1,3 @@
-// src/components/Users/UsersPage.jsx
-
 import React, { useEffect, useMemo, useState } from "react";
 import { API_URL } from "../../config";
 import { motion } from "framer-motion";
@@ -16,9 +14,7 @@ import {
   XAxis,
 } from "recharts";
 
-const UsersPage = ({ auth }) => {
-  const { token, user: currentUser } = auth || {};
-
+const UsersPage = ({ user, onUnauthorized }) => {
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState({
     page: 1,
@@ -35,9 +31,7 @@ const UsersPage = ({ auth }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ===== Fetch users =====
   const fetchUsers = async (page = 1, overrideFilters = filters) => {
-    if (!token) return;
     setLoading(true);
     setError("");
 
@@ -53,12 +47,15 @@ const UsersPage = ({ auth }) => {
       });
 
       const res = await fetch(`${API_URL}/users?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       const data = await res.json();
+
+      if (res.status === 401 || res.status === 403) {
+        onUnauthorized?.();
+        throw new Error(data.message || "Not authorized");
+      }
 
       if (!res.ok) {
         throw new Error(data.message || "Failed to fetch users");
@@ -83,7 +80,6 @@ const UsersPage = ({ auth }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== Handlers =====
   const handleFiltersChange = (patch) => {
     const next = { ...filters, ...patch };
     setFilters(next);
@@ -96,18 +92,23 @@ const UsersPage = ({ auth }) => {
   };
 
   const handleUpdateUser = async (id, updates) => {
-    if (!token) return;
     try {
       const res = await fetch(`${API_URL}/users/${id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify(updates),
       });
 
       const data = await res.json();
+
+      if (res.status === 401 || res.status === 403) {
+        onUnauthorized?.();
+        throw new Error("Not authorized");
+      }
+
       if (!res.ok) {
         throw new Error(data.message || "Failed to update user");
       }
@@ -122,7 +123,6 @@ const UsersPage = ({ auth }) => {
   };
 
   const handleDeleteUser = async (id) => {
-    if (!token) return;
     const confirmDelete = window.confirm(
       "Delete this user? This action cannot be undone."
     );
@@ -131,12 +131,16 @@ const UsersPage = ({ auth }) => {
     try {
       const res = await fetch(`${API_URL}/users/${id}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       const data = await res.json();
+
+      if (res.status === 401 || res.status === 403) {
+        onUnauthorized?.();
+        throw new Error(data.message || "Not authorized");
+      }
+
       if (!res.ok) {
         throw new Error(data.message || "Failed to delete user");
       }
@@ -148,7 +152,6 @@ const UsersPage = ({ auth }) => {
     }
   };
 
-  // ===== Stats & chart data =====
   const stats = useMemo(() => {
     const total = meta.total;
     const active = users.filter((u) => u.status === "active").length;
@@ -177,7 +180,6 @@ const UsersPage = ({ auth }) => {
     [users]
   );
 
-  // ===== Render =====
   return (
     <div className="space-y-6">
       {/* Header row */}
@@ -190,7 +192,7 @@ const UsersPage = ({ auth }) => {
             Search, filter and manage all registered users in your system.
           </p>
         </div>
-        <ChangePassword token={token} />
+        <ChangePassword onUnauthorized={onUnauthorized} />
       </div>
 
       {/* Stats and chart */}
@@ -303,7 +305,7 @@ const UsersPage = ({ auth }) => {
               error={error}
               onUpdateUser={handleUpdateUser}
               onDeleteUser={handleDeleteUser}
-              currentUser={currentUser}
+              currentUser={user}
             />
             <div className="border-t border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-black/30 px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-[11px] text-slate-500 dark:text-slate-400">
               <span>

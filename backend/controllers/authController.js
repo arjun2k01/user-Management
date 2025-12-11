@@ -1,181 +1,85 @@
-// controllers/authController.js
-import bcrypt from "bcryptjs";
-import { User } from "../models/User.js";
-import { generateToken } from "../utils/generateToken.js";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-const sanitizeUser = (user) => ({
-  _id: user._id,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  status: user.status,
-  createdAt: user.createdAt,
-  updatedAt: user.updatedAt,
-});
+const signToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  });
 
-// POST /api/v1/auth/register
-export const register = async (req, res) => {
-  const { name, email, password } = req.body || {};
+const setTokenCookie = (res, token) => {
+  const isProd = process.env.NODE_ENV === "production";
 
-  if (!name || !email || !password) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Name, email and password are required" });
-  }
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "strict" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+};
 
-  const existing = await User.findOne({ email: email.toLowerCase() });
+export const signup = async (req, res) => {
+  const { name, email, password } = req.body;
+  const existing = await User.findOne({ email });
   if (existing) {
-    return res
-      .status(409)
-      .json({ success: false, message: "Email is already registered" });
+    const err = new Error("Email is already registered");
+    err.statusCode = 400;
+    throw err;
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(password, salt);
+  const user = await User.create({ name, email, password });
+  const token = signToken(user._id);
+  setTokenCookie(res, token);
 
-  const user = await User.create({
-    name,
-    email: email.toLowerCase(),
-    password: hashedPassword,
-  });
-
-  const token = generateToken(user._id, user.role);
-
-  return res.status(201).json({
-    success: true,
-    message: "Registration successful",
-    token,
-    user: sanitizeUser(user),
-  });
+  res.status(201).json({ user });
 };
 
-// POST /api/v1/auth/login
 export const login = async (req, res) => {
-  const { email, password } = req.body || {};
+  const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Email and password are required" });
+  const user = await User.findOne({ email });
+  if (!user || !(await user.comparePassword(password))) {
+    const err = new Error("Invalid credentials");
+    err.statusCode = 401;
+    throw err;
   }
 
-  const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
-  if (!user) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Invalid credentials" });
-  }
+  const token = signToken(user._id);
+  setTokenCookie(res, token);
 
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Invalid credentials" });
-  }
-
-  const token = generateToken(user._id, user.role);
-
-  return res.json({
-    success: true,
-    message: "Login successful",
-    token,
-    user: sanitizeUser(user),
-  });
+  res.json({ user });
 };
 
-// POST /api/v1/auth/forgot-password
-// (simple version: email + newPassword -> update directly)
-export const forgotPassword = async (req, res) => {
-  const { email, newPassword } = req.body || {};
-
-  if (!email || !newPassword) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Email and new password are required" });
-  }
-
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) {
-    // don't reveal if user exists
-    return res.json({
-      success: true,
-      message:
-        "If that email exists, the password has been updated (or you will receive a reset message).",
-    });
-  }
-
-  if (newPassword.length < 6) {
-    return res
-      .status(400)
-      .json({ success: false, message: "New password must be at least 6 characters" });
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(newPassword, salt);
-  user.password = hashedPassword;
-  await user.save();
-
-  return res.json({
-    success: true,
-    message: "Password updated successfully",
-  });
+export const logout = async (req, res) => {
+  res.clearCookie("token");
+  res.json({ message: "Logged out" });
 };
 
-// POST /api/v1/auth/change-password
-// Protected: requires Bearer token
 export const changePassword = async (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
+  const { oldPassword, newPassword } = req.body;
+  const user = await User.findById(req.user._id);
 
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({
-      success: false,
-      message: "Current and new password are required",
-    });
-  }
-
-  if (newPassword.length < 6) {
-    return res.status(400).json({
-      success: false,
-      message: "New password must be at least 6 characters",
-    });
-  }
-
-  const user = await User.findById(req.user.id).select("+password");
   if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: "User not found",
-    });
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
   }
 
-  const isMatch = await bcrypt.compare(currentPassword, user.password);
-  if (!isMatch) {
-    return res.status(401).json({
-      success: false,
-      message: "Current password is incorrect",
-    });
+  const match = await user.comparePassword(oldPassword);
+  if (!match) {
+    const err = new Error("Old password is incorrect");
+    err.statusCode = 400;
+    throw err;
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(newPassword, salt);
-  user.password = hashedPassword;
+  user.password = newPassword;
   await user.save();
 
-  return res.json({
-    success: true,
-    message: "Password changed successfully",
-  });
+  res.json({ message: "Password updated successfully" });
 };
 
-// GET /api/v1/auth/me
-export const getMe = async (req, res) => {
-  const user = await User.findById(req.user.id).select("-password");
-  if (!user) {
-    return res.status(404).json({ success: false, message: "User not found" });
-  }
-
-  return res.json({
-    success: true,
-    user: sanitizeUser(user),
+// You can implement real email flow later
+export const forgotPassword = async (req, res) => {
+  res.json({
+    message: "Password reset instructions would be sent in a real system.",
   });
 };

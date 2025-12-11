@@ -1,45 +1,23 @@
-// src/App.jsx
-import React, { useEffect, useState } from "react";
-import { ThemeProvider, useTheme } from "./ThemeContext";
-import AuthForm from "./components/Auth/AuthForm";
-import UsersPage from "./components/Users/UsersPage";
+// client/src/App.jsx
+import React from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useTheme } from "./ThemeContext";
+import { useAuth } from "./AuthContext";
+import AuthPage from "./pages/AuthPage";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
+import UserHomePage from "./pages/UserHomePage";
+import NotFound from "./pages/NotFound";
 
 const AppShell = () => {
   const { theme, toggleTheme } = useTheme();
-  const [auth, setAuth] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const token = localStorage.getItem("token");
-    const user = localStorage.getItem("user");
-    if (!token || !user) return null;
-    try {
-      return { token, user: JSON.parse(user) };
-    } catch {
-      return null;
-    }
-  });
+  const { user, isAdmin, logout } = useAuth();
+  const location = useLocation();
 
-  useEffect(() => {
-    if (auth?.token && auth?.user) {
-      localStorage.setItem("token", auth.token);
-      localStorage.setItem("user", JSON.stringify(auth.user));
-    }
-  }, [auth]);
+  const isAuthenticated = !!user;
 
-  const handleAuthSuccess = ({ token, user }) => {
-    setAuth({ token, user });
+  const handleUnauthorized = () => {
+    logout();
   };
-
-  const handleLogout = () => {
-    setAuth(null);
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-  };
-
-  const handleForgotPassword = () => {
-    alert("TODO: open Forgot Password modal wired to /auth/forgot-password.");
-  };
-
-  const isAuthenticated = !!auth?.token;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-50 transition-colors duration-300">
@@ -55,7 +33,7 @@ const AppShell = () => {
                 User Management
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Admin console
+                {isAdmin ? "Admin console" : "User workspace"}
               </p>
             </div>
           </div>
@@ -70,7 +48,7 @@ const AppShell = () => {
 
             {isAuthenticated && (
               <button
-                onClick={handleLogout}
+                onClick={logout}
                 className="text-[11px] px-3 py-1.5 rounded-full border border-red-400/60 bg-red-500/10 text-red-600 dark:text-red-300 hover:bg-red-500/20 transition-colors"
               >
                 Log out
@@ -80,25 +58,81 @@ const AppShell = () => {
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main content with routes */}
       <main className="max-w-6xl mx-auto px-4 py-6">
-        {!isAuthenticated ? (
-          <AuthForm
-            onAuthSuccess={handleAuthSuccess}
-            onForgotPassword={handleForgotPassword}
+        <Routes>
+          {/* Public login route */}
+          <Route
+            path="/login"
+            element={
+              isAuthenticated ? (
+                <Navigate
+                  to={isAdmin ? "/admin" : "/app"}
+                  replace
+                />
+              ) : (
+                <AuthPage />
+              )
+            }
           />
-        ) : (
-          <UsersPage auth={auth} />
-        )}
+
+          {/* Admin-only dashboard */}
+          <Route
+            path="/admin"
+            element={
+              isAuthenticated && isAdmin ? (
+                <AdminDashboardPage onUnauthorized={handleUnauthorized} />
+              ) : isAuthenticated ? (
+                <Navigate to="/app" replace />
+              ) : (
+                <Navigate
+                  to="/login"
+                  replace
+                  state={{ from: location }}
+                />
+              )
+            }
+          />
+
+          {/* Authenticated user dashboard (any role) */}
+          <Route
+            path="/app"
+            element={
+              isAuthenticated ? (
+                <UserHomePage onUnauthorized={handleUnauthorized} />
+              ) : (
+                <Navigate
+                  to="/login"
+                  replace
+                  state={{ from: location }}
+                />
+              )
+            }
+          />
+
+          {/* Default root */}
+          <Route
+            path="/"
+            element={
+              isAuthenticated ? (
+                <Navigate
+                  to={isAdmin ? "/admin" : "/app"}
+                  replace
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          {/* Catch-all */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
       </main>
     </div>
   );
 };
 
-const App = () => (
-  <ThemeProvider>
-    <AppShell />
-  </ThemeProvider>
-);
+const App = () => <AppShell />;
 
 export default App;

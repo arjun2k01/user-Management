@@ -1,13 +1,13 @@
-// middleware/rateLimiter.js
 import rateLimit from "express-rate-limit";
 
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 20, // max 20 requests per IP for auth endpoints
-  message: {
-    success: false,
-    message: "Too many attempts. Try again later.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: { message: "Too many auth attempts, please try again later." },
+});
+
+export const generalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 120,
+  message: { message: "Too many requests, slow down." },
 });

@@ -1,11 +1,8 @@
-// src/components/Users/Filters.jsx
-
 import React, { Fragment } from "react";
 import { Listbox, Transition } from "@headlessui/react";
 import { motion } from "framer-motion";
 import { Filter, Search, ChevronsUpDown } from "lucide-react";
 
-// Dropdown options
 const roles = ["All", "admin", "user"];
 const statuses = ["All", "active", "pending", "disabled"];
 const sortFields = ["createdAt", "name", "email"];
@@ -15,18 +12,15 @@ const sortOrders = [
 ];
 
 const Filters = ({ filters, onChange }) => {
-  // Smart handler: supports both events (inputs) and direct values (Listbox)
   const updateField = (field) => (valueOrEvent) => {
     const value =
       typeof valueOrEvent === "string"
         ? valueOrEvent
         : valueOrEvent?.target?.value;
 
-    if (!onChange) return;
-    onChange({ [field]: value });
+    onChange?.({ [field]: value });
   };
 
-  // Safe defaults so we never render undefined
   const safeFilters = {
     search: "",
     role: "All",
@@ -41,9 +35,8 @@ const Filters = ({ filters, onChange }) => {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6"
+      className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mb-2"
     >
-      {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <div className="h-9 w-9 rounded-full bg-indigo-500/10 flex items-center justify-center">
           <Filter className="w-5 h-5 text-indigo-500" />
@@ -72,7 +65,6 @@ const Filters = ({ filters, onChange }) => {
         />
       </div>
 
-      {/* Grid of filters */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Role */}
         <div>

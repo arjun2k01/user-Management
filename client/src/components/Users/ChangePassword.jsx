@@ -1,11 +1,15 @@
-// src/components/Users/ChangePassword.jsx
-
 import React, { useState } from "react";
 import { API_URL } from "../../config";
 import { motion } from "framer-motion";
-import { Lock, CheckCircle2, XCircle, Eye, EyeOff } from "lucide-react";
+import {
+  Lock,
+  CheckCircle2,
+  XCircle,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
-const ChangePassword = ({ token }) => {
+const ChangePassword = ({ onUnauthorized }) => {
   const [form, setForm] = useState({
     oldPassword: "",
     newPassword: "",
@@ -30,12 +34,17 @@ const ChangePassword = ({ token }) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify(form),
       });
 
       const data = await res.json();
+
+      if (res.status === 401 || res.status === 403) {
+        onUnauthorized?.();
+        throw new Error("Session expired. Please log in again.");
+      }
 
       if (!res.ok) {
         throw new Error(data.message || "Failed to change password");
@@ -92,7 +101,11 @@ const ChangePassword = ({ token }) => {
             onClick={() => setShowOld((v) => !v)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
           >
-            {showOld ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {showOld ? (
+              <EyeOff className="w-3.5 h-3.5" />
+            ) : (
+              <Eye className="w-3.5 h-3.5" />
+            )}
           </button>
         </div>
 
@@ -113,7 +126,11 @@ const ChangePassword = ({ token }) => {
             onClick={() => setShowNew((v) => !v)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
           >
-            {showNew ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {showNew ? (
+              <EyeOff className="w-3.5 h-3.5" />
+            ) : (
+              <Eye className="w-3.5 h-3.5" />
+            )}
           </button>
         </div>
 

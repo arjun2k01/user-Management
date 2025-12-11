@@ -1,5 +1,3 @@
-// src/components/Auth/AuthForm.jsx
-
 import React, { useState } from "react";
 import { API_URL } from "../../config";
 import { motion } from "framer-motion";
@@ -42,7 +40,7 @@ const AuthForm = ({ onAuthSuccess, onForgotPassword }) => {
     setLoading(true);
 
     try {
-      const endpoint = mode === "login" ? "login" : "register";
+      const endpoint = mode === "login" ? "login" : "signup";
 
       const body =
         mode === "login"
@@ -59,6 +57,7 @@ const AuthForm = ({ onAuthSuccess, onForgotPassword }) => {
       const res = await fetch(`${API_URL}/auth/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // send/receive cookies
         body: JSON.stringify(body),
       });
 
@@ -68,11 +67,11 @@ const AuthForm = ({ onAuthSuccess, onForgotPassword }) => {
         throw new Error(data.message || "Authentication failed");
       }
 
-      if (!data.token || !data.user) {
+      if (!data.user) {
         throw new Error("Unexpected response from server");
       }
 
-      onAuthSuccess?.({ token: data.token, user: data.user });
+      onAuthSuccess?.({ user: data.user });
     } catch (err) {
       console.error(err);
       setError(err.message || "Something went wrong. Please try again.");
