@@ -1,175 +1,181 @@
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+// controllers/authController.js
+import bcrypt from "bcryptjs";
+import { User } from "../models/User.js";
+import { generateToken } from "../utils/generateToken.js";
 
-// ============== SIGNUP CONTROLLER ==============
-export const signup = async (req, res) => {
-  const { name, email, password } = req.body;
-  
-  // Check if user already exists
-  const userExists = await User.findOne({ email });
-  if (userExists) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "User already exists with this email" 
-    });
+const sanitizeUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt,
+});
+
+// POST /api/v1/auth/register
+export const register = async (req, res) => {
+  const { name, email, password } = req.body || {};
+
+  if (!name || !email || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Name, email and password are required" });
   }
-  
-  // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
-  
-  // Create new user
-  const user = new User({ 
-    name, 
-    email, 
-    password: hashedPassword 
+
+  const existing = await User.findOne({ email: email.toLowerCase() });
+  if (existing) {
+    return res
+      .status(409)
+      .json({ success: false, message: "Email is already registered" });
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
+
+  const user = await User.create({
+    name,
+    email: email.toLowerCase(),
+    password: hashedPassword,
   });
-  
-  // Save user to database
-  await user.save();
-  
-  // Generate JWT token
-  const token = jwt.sign(
-    { userId: user._id, email: user.email }, 
-    process.env.JWT_SECRET, 
-    { expiresIn: "7d" }
-  );
-  
-  // Return success response
-  return res.status(201).json({ 
-    success: true, 
-    message: "User registered successfully",
-    token, 
-    user: { 
-      id: user._id, 
-      name: user.name, 
-      email: user.email 
-    } 
+
+  const token = generateToken(user._id, user.role);
+
+  return res.status(201).json({
+    success: true,
+    message: "Registration successful",
+    token,
+    user: sanitizeUser(user),
   });
 };
 
-// ============== LOGIN CONTROLLER ==============
+// POST /api/v1/auth/login
 export const login = async (req, res) => {
-  const { email, password } = req.body;
-  
-  // Find user by email
-  const user = await User.findOne({ email });
-  if (!user) {
-    return res.status(404).json({ 
-      success: false, 
-      message: "User not found with this email" 
-    });
+  const { email, password } = req.body || {};
+
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email and password are required" });
   }
-  
-  // Compare passwords
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+  if (!user) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid credentials" });
+  }
+
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
-    return res.status(401).json({ 
-      success: false, 
-      message: "Invalid email or password" 
-    });
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid credentials" });
   }
-  
-  // Generate JWT token
-  const token = jwt.sign(
-    { userId: user._id, email: user.email }, 
-    process.env.JWT_SECRET, 
-    { expiresIn: "7d" }
-  );
-  
-  // Return success response
-  return res.json({ 
-    success: true, 
+
+  const token = generateToken(user._id, user.role);
+
+  return res.json({
+    success: true,
     message: "Login successful",
-    token, 
-    user: { 
-      id: user._id, 
-      name: user.name, 
-      email: user.email 
-    } 
+    token,
+    user: sanitizeUser(user),
   });
 };
 
-// ============== CHANGE PASSWORD CONTROLLER ==============
-export const changePassword = async (req, res) => {
-  const { oldPassword, newPassword } = req.body;
-  const userId = req.user.userId;
-  
-  // Find user by ID
-  const user = await User.findById(userId);
-  if (!user) {
-    return res.status(404).json({ 
-      success: false, 
-      message: "User not found" 
-    });
-  }
-  
-  // Verify old password
-  const isMatch = await bcrypt.compare(oldPassword, user.password);
-  if (!isMatch) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Current password is incorrect" 
-    });
-  }
-  
-  // Hash new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-  
-  // Update password
-  user.password = hashedPassword;
-  await user.save();
-  
-  return res.json({ 
-    success: true, 
-    message: "Password changed successfully" 
-  });
-};
-
-// ============== FORGOT PASSWORD CONTROLLER ==============
+// POST /api/v1/auth/forgot-password
+// (simple version: email + newPassword -> update directly)
 export const forgotPassword = async (req, res) => {
-  const { email, newPassword } = req.body;
-  
+  const { email, newPassword } = req.body || {};
+
   if (!email || !newPassword) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Email and new password are required" 
-    });
+    return res
+      .status(400)
+      .json({ success: false, message: "Email and new password are required" });
   }
-  
-  // Validate password strength
-  if (newPassword.length < 8) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Password must be at least 8 characters long" 
-    });
-  }
-  
-  // Find user
-  const user = await User.findOne({ email });
+
+  const user = await User.findOne({ email: email.toLowerCase() });
   if (!user) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "No account found with this email" 
+    // don't reveal if user exists
+    return res.json({
+      success: true,
+      message:
+        "If that email exists, the password has been updated (or you will receive a reset message).",
     });
   }
-  
-  // Hash new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-  
-  // Update password
+
+  if (newPassword.length < 6) {
+    return res
+      .status(400)
+      .json({ success: false, message: "New password must be at least 6 characters" });
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
   user.password = hashedPassword;
   await user.save();
-  
-  return res.json({ 
-    success: true, 
-    message: "Password reset successfully. Note: In production, implement email verification before allowing password reset." 
+
+  return res.json({
+    success: true,
+    message: "Password updated successfully",
   });
 };
 
-export default {
-  signup,
-  login,
-  changePassword,
-  forgotPassword
+// POST /api/v1/auth/change-password
+// Protected: requires Bearer token
+export const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "Current and new password are required",
+    });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "New password must be at least 6 characters",
+    });
+  }
+
+  const user = await User.findById(req.user.id).select("+password");
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) {
+    return res.status(401).json({
+      success: false,
+      message: "Current password is incorrect",
+    });
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+  user.password = hashedPassword;
+  await user.save();
+
+  return res.json({
+    success: true,
+    message: "Password changed successfully",
+  });
+};
+
+// GET /api/v1/auth/me
+export const getMe = async (req, res) => {
+  const user = await User.findById(req.user.id).select("-password");
+  if (!user) {
+    return res.status(404).json({ success: false, message: "User not found" });
+  }
+
+  return res.json({
+    success: true,
+    user: sanitizeUser(user),
+  });
 };

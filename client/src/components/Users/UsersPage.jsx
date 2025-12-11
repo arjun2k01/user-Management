@@ -1,17 +1,30 @@
-import { useState, useEffect } from "react";
-import UserTable from "./UserTable";
+// src/components/Users/UsersPage.jsx
+
+import React, { useEffect, useMemo, useState } from "react";
+import { API_URL } from "../../config";
+import { motion } from "framer-motion";
+import { Users, UserCheck, ShieldHalf, AlertTriangle } from "lucide-react";
 import Filters from "./Filters";
+import UserTable from "./UserTable";
 import Pagination from "./Pagination";
 import ChangePassword from "./ChangePassword";
-import { API_URL } from "../../config";
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+} from "recharts";
 
-export default function UsersPage({ user, token, onLogout }) {
+const UsersPage = ({ auth }) => {
+  const { token, user: currentUser } = auth || {};
+
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState({
     page: 1,
     totalPages: 1,
+    total: 0,
   });
-
   const [filters, setFilters] = useState({
     search: "",
     role: "All",
@@ -19,48 +32,339 @@ export default function UsersPage({ user, token, onLogout }) {
     sortBy: "createdAt",
     sortOrder: "desc",
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const fetchUsers = async (page = 1) => {
-    const params = new URLSearchParams({
-      ...filters,
-      page,
-      limit: 5,
-    });
+  // ===== Fetch users =====
+  const fetchUsers = async (page = 1, overrideFilters = filters) => {
+    if (!token) return;
+    setLoading(true);
+    setError("");
 
-    const res = await fetch(`${API_URL}/users?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "5",
+        search: overrideFilters.search || "",
+        role: overrideFilters.role,
+        status: overrideFilters.status,
+        sortBy: overrideFilters.sortBy,
+        sortOrder: overrideFilters.sortOrder,
+      });
 
-    const data = await res.json();
-    if (!res.ok) return alert(data.message);
+      const res = await fetch(`${API_URL}/users?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    setUsers(data.users);
-    setMeta({ page: data.page, totalPages: data.totalPages });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to fetch users");
+      }
+
+      setUsers(data.users || []);
+      setMeta({
+        page: data.page || 1,
+        totalPages: data.totalPages || 1,
+        total: data.total || (data.users || []).length,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Something went wrong while loading users.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchUsers(1);
+    fetchUsers(1, filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ===== Handlers =====
+  const handleFiltersChange = (patch) => {
+    const next = { ...filters, ...patch };
+    setFilters(next);
+    fetchUsers(1, next);
+  };
+
+  const handlePageChange = (nextPage) => {
+    if (nextPage < 1 || nextPage > meta.totalPages) return;
+    fetchUsers(nextPage, filters);
+  };
+
+  const handleUpdateUser = async (id, updates) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/users/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updates),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to update user");
+      }
+
+      setUsers((prev) =>
+        prev.map((u) => (u._id === id ? { ...u, ...data.user } : u))
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not update user");
+    }
+  };
+
+  const handleDeleteUser = async (id) => {
+    if (!token) return;
+    const confirmDelete = window.confirm(
+      "Delete this user? This action cannot be undone."
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const res = await fetch(`${API_URL}/users/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to delete user");
+      }
+
+      fetchUsers(meta.page, filters);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not delete user");
+    }
+  };
+
+  // ===== Stats & chart data =====
+  const stats = useMemo(() => {
+    const total = meta.total;
+    const active = users.filter((u) => u.status === "active").length;
+    const admins = users.filter((u) => u.role === "admin").length;
+    const disabled = users.filter((u) => u.status === "disabled").length;
+
+    return [
+      { id: "total", label: "Total users", value: total, icon: Users },
+      { id: "active", label: "Active (this page)", value: active, icon: UserCheck },
+      { id: "admins", label: "Admins (this page)", value: admins, icon: ShieldHalf },
+      { id: "disabled", label: "Disabled (this page)", value: disabled, icon: AlertTriangle },
+    ];
+  }, [users, meta.total]);
+
+  const chartData = useMemo(
+    () =>
+      users.map((u, idx) => ({
+        label: idx + 1,
+        value:
+          u.status === "active"
+            ? 3
+            : u.status === "pending"
+            ? 1.5
+            : 0.5,
+      })),
+    [users]
+  );
+
+  // ===== Render =====
   return (
-    <div className="users-container">
-      <div className="top-bar">
-        <h2>User Management</h2>
-        <button onClick={onLogout}>Logout</button>
+    <div className="space-y-6">
+      {/* Header row */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 flex items-center gap-2">
+            Users overview
+          </h2>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Search, filter and manage all registered users in your system.
+          </p>
+        </div>
+        <ChangePassword token={token} />
       </div>
 
-      <ChangePassword token={token} />
+      {/* Stats and chart */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(230px,2fr)]">
+        {/* Stat cards */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="grid grid-cols-2 md:grid-cols-4 gap-3"
+        >
+          {stats.map((stat, idx) => {
+            const Icon = stat.icon;
+            return (
+              <motion.div
+                key={stat.id}
+                whileHover={{ y: -3, scale: 1.02 }}
+                transition={{
+                  type: "spring",
+                  stiffness: 260,
+                  damping: 20,
+                  delay: idx * 0.03,
+                }}
+                className="relative overflow-hidden rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white dark:bg-slate-950/80 px-3 py-3 shadow-sm dark:shadow-md dark:shadow-black/40"
+              >
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-emerald-500/5 to-transparent dark:from-emerald-500/10" />
+                <div className="relative flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {stat.label}
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-50">
+                      {stat.value}
+                    </p>
+                  </div>
+                  <div className="h-9 w-9 rounded-2xl bg-slate-100 dark:bg-black/40 border border-slate-200 dark:border-white/10 flex items-center justify-center">
+                    <Icon className="w-4 h-4 text-emerald-500 dark:text-emerald-300" />
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </motion.div>
 
-      <Filters filters={filters} setFilters={setFilters} fetchUsers={fetchUsers} />
+        {/* Activity chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.05 }}
+          className="rounded-3xl border border-slate-200/70 dark:border-white/10 bg-white dark:bg-slate-950/80 p-3 text-xs shadow-sm dark:shadow-md dark:shadow-black/40"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Activity snapshot
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-300">
+                Relative activity score for users on this page
+              </p>
+            </div>
+          </div>
 
-      <UserTable
-        users={users}
-        fetchUsers={fetchUsers}
-        token={token}
-        page={meta.page}
-      />
+          <div className="h-28 w-full">
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="usersArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" hide />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#020617",
+                      borderRadius: "0.75rem",
+                      border: "1px solid rgba(148,163,184,0.5)",
+                      fontSize: "11px",
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#22c55e"
+                    strokeWidth={1.5}
+                    fill="url(#usersArea)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-500">
+                Not enough data to visualize yet.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
 
-      <Pagination meta={meta} fetchUsers={fetchUsers} />
+      {/* Filters + main table + side cards */}
+      <div className="grid lg:grid-cols-[minmax(0,2.3fr)_minmax(240px,1.2fr)] gap-5">
+        {/* Left side: filters + table + pagination */}
+        <div className="space-y-4">
+          <Filters filters={filters} onChange={handleFiltersChange} />
+
+          <div className="rounded-3xl border border-slate-200/70 dark:border-white/10 bg-white dark:bg-slate-950/90 shadow-sm dark:shadow-xl dark:shadow-black/60 overflow-hidden">
+            <UserTable
+              users={users}
+              loading={loading}
+              error={error}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              currentUser={currentUser}
+            />
+            <div className="border-t border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-black/30 px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+              <span>
+                Showing page{" "}
+                <span className="text-emerald-600 dark:text-emerald-300 font-medium">
+                  {meta.page}
+                </span>{" "}
+                of{" "}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {meta.totalPages}
+                </span>
+              </span>
+              <span>
+                Total users:{" "}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {meta.total}
+                </span>
+              </span>
+            </div>
+          </div>
+
+          <Pagination
+            page={meta.page}
+            totalPages={meta.totalPages}
+            onPageChange={handlePageChange}
+          />
+        </div>
+
+        {/* Right side: helper cards */}
+        <div className="space-y-3">
+          <div className="rounded-3xl border border-emerald-500/30 bg-gradient-to-b from-emerald-500/10 via-slate-50/95 to-slate-50 dark:from-emerald-500/15 dark:via-slate-950/90 dark:to-slate-950 p-4 text-[11px] text-slate-700 dark:text-slate-200 shadow-md dark:shadow-lg dark:shadow-emerald-500/30">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50 mb-1.5">
+              Filter strategy tips
+            </h3>
+            <p className="mb-1.5">
+              Use search, role and status together to narrow large user sets
+              quickly. This mirrors common patterns in real-world admin
+              dashboards.
+            </p>
+            <ul className="space-y-1">
+              <li>• Search by email when investigating a single account.</li>
+              <li>• Filter role=&quot;admin&quot; for regular access reviews.</li>
+              <li>• Filter status=&quot;disabled&quot; to clean up stale accounts.</li>
+            </ul>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200/70 dark:border-white/10 bg-slate-50/95 dark:bg-black/40 p-4 text-[11px] text-slate-700 dark:text-slate-300">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50 mb-1.5">
+              Security note
+            </h3>
+            <p>
+              The UI helps you manage users, but the backend must still enforce
+              role-based permissions for actions like deleting users or
+              promoting them to admin. Never rely on the frontend alone for
+              access control.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
-}
+};
+
+export default UsersPage;

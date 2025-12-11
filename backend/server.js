@@ -1,72 +1,47 @@
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
+// server.js
 import "dotenv/config";
-import morgan from "morgan";
+import express from "express";
 import helmet from "helmet";
+import cors from "cors";
+import morgan from "morgan";
+import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
-import { errorHandler } from "./middlewares/errorHandler.js";
+import { notFound, errorHandler } from "./middleware/errorHandler.js";
+import "express-async-errors";
 
 const app = express();
 
-// ============= SECURITY MIDDLEWARES =============
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:5173",
-  credentials: true
-}));
+// ====== CONNECT DB ======
+await connectDB();
 
-// ============= LOGGING MIDDLEWARE =============
-app.use(morgan("combined"));
+// ====== MIDDLEWARES ======
+app.use(helmet()); // secure headers
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "*",
+    credentials: true,
+  })
+);
+app.use(express.json({ limit: "10kb" })); // limit body size to avoid abuse
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
-// ============= BODY PARSER MIDDLEWARES =============
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
-
-// ============= HEALTH CHECK ENDPOINT =============
-app.get("/api/health", (req, res) => {
-  res.json({ status: "OK", message: "Server is running" });
+// ====== HEALTHCHECK ======
+app.get("/api/v1/health", (req, res) => {
+  res.json({ success: true, message: "API is healthy" });
 });
 
-// ============= API ROUTES =============
+// ====== ROUTES ======
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 
-// ============= 404 HANDLER =============
-app.use((req, res) => {
-  res.status(404).json({ 
-    success: false,
-    message: "Route not found" 
-  });
-});
-
-// ============= ERROR HANDLER MIDDLEWARE =============
+// ====== ERROR HANDLING ======
+app.use(notFound);
 app.use(errorHandler);
 
-// ============= DATABASE CONNECTION & SERVER START =============
+// ====== START SERVER ======
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
-
-if (!MONGO_URI) {
-  console.error("MONGO_URI is not defined in environment variables");
-  process.exit(1);
-}
-
-mongoose
-  .connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => {
-    console.log("MongoDB connected successfully");
-    app.listen(PORT, () => {
-      console.log(`Server running at http://localhost:${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error("MongoDB connection error:", err.message);
-    process.exit(1);
-  });
-
-export default app;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
