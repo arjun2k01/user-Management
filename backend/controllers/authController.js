@@ -6,19 +6,36 @@ const signToken = (id) =>
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
   });
 
-const setTokenCookie = (res, token) => {
-  const isProd = process.env.NODE_ENV === "production";
+const isProd = process.env.NODE_ENV === "production";
 
+const setTokenCookie = (res, token) => {
   res.cookie("token", token, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "strict" : "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    secure: isProd,                   // 🔑 required with SameSite: "none"
+    sameSite: isProd ? "none" : "lax", // 🔑 allows cross-site cookies in prod
+    maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days
   });
 };
 
+const clearTokenCookie = (res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+  });
+};
+
+const buildUserPayload = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  createdAt: user.createdAt,
+});
+
 export const signup = async (req, res) => {
   const { name, email, password } = req.body;
+
   const existing = await User.findOne({ email });
   if (existing) {
     const err = new Error("Email is already registered");
@@ -30,7 +47,7 @@ export const signup = async (req, res) => {
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
-  res.status(201).json({ user });
+  res.status(201).json({ user: buildUserPayload(user) });
 };
 
 export const login = async (req, res) => {
@@ -46,11 +63,11 @@ export const login = async (req, res) => {
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
-  res.json({ user });
+  res.json({ user: buildUserPayload(user) });
 };
 
 export const logout = async (req, res) => {
-  res.clearCookie("token");
+  clearTokenCookie(res);
   res.json({ message: "Logged out" });
 };
 
@@ -73,6 +90,10 @@ export const changePassword = async (req, res) => {
 
   user.password = newPassword;
   await user.save();
+
+  // Optional: issue a fresh token after password change
+  const token = signToken(user._id);
+  setTokenCookie(res, token);
 
   res.json({ message: "Password updated successfully" });
 };
