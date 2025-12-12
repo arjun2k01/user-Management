@@ -1,5 +1,5 @@
 // client/src/App.jsx
-import React from "react";
+
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useTheme } from "./ThemeContext";
 import { useAuth } from "./AuthContext";
@@ -7,6 +7,7 @@ import AuthPage from "./pages/AuthPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import UserHomePage from "./pages/UserHomePage";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 
 const AppShell = () => {
   const { theme, toggleTheme } = useTheme();
@@ -127,6 +128,7 @@ const AppShell = () => {
 
           {/* Catch-all */}
           <Route path="*" element={<NotFound />} />
+          <Route path="/reset-password" element={<ResetPassword/>}/>
         </Routes>
       </main>
     </div>

@@ -1,83 +1,85 @@
-import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 import User from "../models/User.js";
-import { sendMail } from "../utils/mailer.js";
+import { sendEmail } from "../utils/sendEmail.js";
+import { validatePasswordStrength } from "../utils/validatePasswordStrength.js";
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
   });
 
-const isProd = process.env.NODE_ENV === "production";
-
 const setTokenCookie = (res, token) => {
+  const isProd = process.env.NODE_ENV === "production";
   res.cookie("token", token, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: isProd ? "none" : "lax", // important for Vercel+Render cross-site cookies
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
 
 const clearTokenCookie = (res) => {
-  res.clearCookie("token", {
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("token", "", {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    expires: new Date(0),
   });
 };
 
-const buildUserPayload = (user) => ({
-  id: user._id,
-  _id: user._id,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  status: user.status,
-  createdAt: user.createdAt,
-});
+// ✅ SAFE: Only create admin for FIRST_ADMIN_EMAIL when FIRST_ADMIN_CREATE=true
+const resolveRoleOnSignup = async (email) => {
+  const allow = String(process.env.FIRST_ADMIN_CREATE || "").toLowerCase() === "true";
+  const firstAdminEmail = (process.env.FIRST_ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!allow || !firstAdminEmail) return "user";
+  if (email.trim().toLowerCase() !== firstAdminEmail) return "user";
+
+  // allow only if no admin exists yet
+  const adminExists = await User.exists({ role: "admin" });
+  if (adminExists) return "user";
+  return "admin";
+};
 
 export const signup = async (req, res) => {
   const { name, email, password } = req.body;
 
-  const existing = await User.findOne({ email });
-  if (existing) {
-    const err = new Error("Email is already registered");
-    err.statusCode = 400;
-    throw err;
+  // ✅ stronger password validation
+  const pwCheck = validatePasswordStrength(password);
+  if (!pwCheck.ok) {
+    return res.status(400).json({ message: pwCheck.message });
   }
 
-  const user = await User.create({ name, email, password, role: "admin" });
+  const existing = await User.findOne({ email });
+  if (existing) return res.status(400).json({ message: "Email is already registered" });
+
+  const role = await resolveRoleOnSignup(email);
+
+  const user = await User.create({ name, email, password, role });
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
-  res.status(201).json({ user: buildUserPayload(user) });
+  res.status(201).json({ user: { id: user._id, name: user.name, email: user.email, role: user.role } });
 };
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user || !(await user.comparePassword(password))) {
-    const err = new Error("Invalid credentials");
-    err.statusCode = 401;
-    throw err;
-  }
+  const user = await User.findOne({ email }).select("+password");
+  if (!user) return res.status(401).json({ message: "Invalid email or password" });
 
   if (user.status === "disabled") {
-    const err = new Error("Your account is disabled");
-    err.statusCode = 403;
-    throw err;
+    return res.status(403).json({ message: "Your account has been disabled" });
   }
+
+  const ok = await user.correctPassword(password);
+  if (!ok) return res.status(401).json({ message: "Invalid email or password" });
 
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
-  res.json({ user: buildUserPayload(user) });
-};
-
-export const me = async (req, res) => {
-  res.json({ user: buildUserPayload(req.user) });
+  res.json({ user: { id: user._id, name: user.name, email: user.email, role: user.role, status: user.status } });
 };
 
 export const logout = async (req, res) => {
@@ -85,106 +87,96 @@ export const logout = async (req, res) => {
   res.json({ message: "Logged out" });
 };
 
-export const changePassword = async (req, res) => {
-  const { oldPassword, newPassword } = req.body;
-
-  const user = await User.findById(req.user._id);
-  if (!user) {
-    const err = new Error("User not found");
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const match = await user.comparePassword(oldPassword);
-  if (!match) {
-    const err = new Error("Old password is incorrect");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  user.password = newPassword;
-  await user.save();
-
-  const token = signToken(user._id);
-  setTokenCookie(res, token);
-
-  res.json({ message: "Password updated successfully" });
+export const getMe = async (req, res) => {
+  res.json({
+    user: {
+      id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+      status: req.user.status,
+    },
+  });
 };
 
-/**
- * Request a reset email with a token.
- * Always returns generic success message (prevents email enumeration).
- */
-export const requestPasswordReset = async (req, res) => {
+// ======== RESET PASSWORD (production UX) ========
+
+export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
-  const genericMsg =
-    "If an account exists for that email, you'll receive password reset instructions shortly.";
-
   const user = await User.findOne({ email });
-  if (!user) return res.json({ message: genericMsg });
+  // Always respond success (no account enumeration)
+  if (!user) return res.json({ message: "If an account exists, a reset link has been sent." });
 
   const rawToken = crypto.randomBytes(32).toString("hex");
-  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  user.resetPasswordTokenHash = tokenHash;
-  user.resetPasswordExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
-  await user.save();
+  user.passwordResetToken = hashedToken;
+  user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 min
+  await user.save({ validateBeforeSave: false });
 
-  const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL;
-  if (!frontendUrl) {
-    const err = new Error("FRONTEND_URL is not set. Configure it to send reset links.");
-    err.statusCode = 500;
-    throw err;
-  }
+  const frontend = process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
+  const resetUrl = `${frontend.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
 
-  const resetLink = `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
-
-
-  const subject = "Reset your password";
-  const text = `You requested a password reset. Use this link (valid for 15 minutes):\\n\\n${resetLink}\\n\\nIf you didn't request this, ignore this email.`;
   const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-      <h2>Reset your password</h2>
-      <p>You requested a password reset. Click below (valid for <b>15 minutes</b>):</p>
-      <p>
-        <a href="${resetLink}" style="display:inline-block;padding:10px 14px;background:#10b981;color:#0b1220;text-decoration:none;border-radius:10px;font-weight:700;">
-          Reset password
-        </a>
-      </p>
-      <p style="color:#475569;font-size:12px;">If the button doesn't work, copy and paste:</p>
-      <p style="color:#0f172a;font-size:12px;word-break:break-all;">${resetLink}</p>
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2>Password reset</h2>
+      <p>You requested a password reset. Click the link below to set a new password.</p>
+      <p><a href="${resetUrl}" target="_blank" rel="noreferrer">Reset your password</a></p>
+      <p>This link will expire in 15 minutes.</p>
+      <p>If you didn’t request this, you can ignore this email.</p>
     </div>
   `;
 
-  await sendMail({ to: user.email, subject, html, text });
+  await sendEmail({
+    to: user.email,
+    subject: "Reset your password",
+    html,
+  });
 
-  return res.json({ message: genericMsg });
+  res.json({ message: "If an account exists, a reset link has been sent." });
 };
 
 export const resetPassword = async (req, res) => {
-  const { token, newPassword } = req.body;
+  const { token, password } = req.body;
+  if (!token) return res.status(400).json({ message: "Token is required" });
 
-  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const pwCheck = validatePasswordStrength(password);
+  if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
+
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
   const user = await User.findOne({
-    resetPasswordTokenHash: tokenHash,
-    resetPasswordExpiresAt: { $gt: new Date() },
-  });
+    passwordResetToken: hashedToken,
+    passwordResetExpires: { $gt: Date.now() },
+  }).select("+password");
 
-  if (!user) {
-    const err = new Error("Reset token is invalid or expired");
-    err.statusCode = 400;
-    throw err;
-  }
+  if (!user) return res.status(400).json({ message: "Token is invalid or has expired" });
 
-  user.password = newPassword;
-  user.resetPasswordTokenHash = null;
-  user.resetPasswordExpiresAt = null;
+  user.password = password;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
   await user.save();
 
-  res.json({ message: "Password reset successfully. Please sign in." });
+  // Auto-login after reset
+  const jwtToken = signToken(user._id);
+  setTokenCookie(res, jwtToken);
+
+  res.json({ message: "Password reset successful" });
 };
 
-// Back-compat: keeps old frontend working
-export const forgotPassword = async (req, res) => requestPasswordReset(req, res);
+export const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const pwCheck = validatePasswordStrength(newPassword);
+  if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
+
+  const user = await User.findById(req.user._id).select("+password");
+  const ok = await user.correctPassword(currentPassword);
+  if (!ok) return res.status(401).json({ message: "Current password is incorrect" });
+
+  user.password = newPassword;
+  await user.save();
+
+  res.json({ message: "Password updated successfully" });
+};

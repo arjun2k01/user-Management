@@ -42,10 +42,12 @@ const UserTable = ({
   const currentUserId = currentUser?._id;
 
   return (
-    <div className="overflow-hidden">
+    <div className="w-full overflow-x-auto">
+
       {/* Header row */}
       <div className="bg-slate-900 text-slate-50 text-[11px] font-medium uppercase tracking-wide">
-        <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_80px] px-4 py-2">
+       <div className="min-w-[900px]">
+
           <div>Name</div>
           <div>Email</div>
           <div>Role</div>
