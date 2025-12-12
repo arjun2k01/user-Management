@@ -1,5 +1,4 @@
 import { body, param, validationResult } from "express-validator";
-import { body, validationResult } from "express-validator";
 export const validateSignup = [
   body("name").trim().notEmpty().withMessage("Name is required"),
   body("email").isEmail().withMessage("Valid email is required"),

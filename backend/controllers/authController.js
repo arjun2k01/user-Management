@@ -138,7 +138,8 @@ export const requestPasswordReset = async (req, res) => {
     throw err;
   }
 
-  const resetLink = `${frontendUrl.replace(/\\/$/ "")}/reset-password?token=${rawToken}`;
+  const resetLink = `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
+
 
   const subject = "Reset your password";
   const text = `You requested a password reset. Use this link (valid for 15 minutes):\\n\\n${resetLink}\\n\\nIf you didn't request this, ignore this email.`;
