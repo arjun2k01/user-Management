@@ -1,89 +1,117 @@
+import mongoose from "mongoose";
 import User from "../models/User.js";
 
-export const getUsers = async (req, res) => {
-  const {
-    page = 1,
-    limit = 5,
-    search = "",
-    role = "All",
-    status = "All",
-    sortBy = "createdAt",
-    sortOrder = "desc",
-  } = req.query;
+// GET /api/users (admin)
+export const getAllUsers = async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page || "1", 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "10", 10)));
+  const q = (req.query.q || "").trim();
+  const role = (req.query.role || "").trim(); // optional filter
+  const status = (req.query.status || "").trim(); // optional filter
 
-  const filters = {};
-
-  if (search) {
-    filters.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
+  const filter = {};
+  if (q) {
+    filter.$or = [
+      { name: { $regex: q, $options: "i" } },
+      { email: { $regex: q, $options: "i" } },
     ];
   }
+  if (role) filter.role = role;
+  if (status) filter.status = status;
 
-  if (role !== "All") {
-    filters.role = role;
-  }
+  const skip = (page - 1) * limit;
 
-  if (status !== "All") {
-    filters.status = status;
-  }
-
-  const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
-
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
-
-  const [users, total] = await Promise.all([
-    User.find(filters)
-      .sort(sort)
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum),
-    User.countDocuments(filters),
+  const [total, users] = await Promise.all([
+    User.countDocuments(filter),
+    User.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select("-password"),
   ]);
 
   res.json({
     users,
-    page: pageNum,
-    totalPages: Math.ceil(total / limitNum) || 1,
+    page,
+    limit,
     total,
+    totalPages: Math.ceil(total / limit) || 1,
   });
 };
 
-export const updateUser = async (req, res) => {
+// PATCH /api/users/:id/role (admin)
+export const updateUserRole = async (req, res) => {
   const { id } = req.params;
-  const { name, role, status } = req.body;
+  const { role } = req.body;
 
-  const user = await User.findById(id);
-  if (!user) {
-    const err = new Error("User not found");
-    err.statusCode = 404;
-    throw err;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid user id" });
   }
 
-  if (name !== undefined) user.name = name;
-  if (role !== undefined) user.role = role;
-  if (status !== undefined) user.status = status;
+  if (!["user", "admin"].includes(role)) {
+    return res.status(400).json({ message: "Invalid role" });
+  }
 
-  await user.save();
+  // Optional safety: don't allow admin to demote themselves
+  if (String(req.user?._id) === String(id) && role !== "admin") {
+    return res.status(400).json({ message: "You cannot remove your own admin role" });
+  }
+
+  const user = await User.findByIdAndUpdate(
+    id,
+    { role },
+    { new: true, runValidators: true }
+  ).select("-password");
+
+  if (!user) return res.status(404).json({ message: "User not found" });
 
   res.json({ user });
 };
 
+// PATCH /api/users/:id/status (admin)
+export const updateUserStatus = async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid user id" });
+  }
+
+  if (!["active", "disabled"].includes(status)) {
+    return res.status(400).json({ message: "Invalid status" });
+  }
+
+  // Optional safety: don't allow admin to disable themselves
+  if (String(req.user?._id) === String(id) && status !== "active") {
+    return res.status(400).json({ message: "You cannot disable your own account" });
+  }
+
+  const user = await User.findByIdAndUpdate(
+    id,
+    { status },
+    { new: true, runValidators: true }
+  ).select("-password");
+
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  res.json({ user });
+};
+
+// DELETE /api/users/:id (admin)
 export const deleteUser = async (req, res) => {
   const { id } = req.params;
 
-  if (req.user._id.toString() === id) {
-    const err = new Error("You cannot delete your own account");
-    err.statusCode = 400;
-    throw err;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid user id" });
   }
 
-  const result = await User.findByIdAndDelete(id);
-  if (!result) {
-    const err = new Error("User not found");
-    err.statusCode = 404;
-    throw err;
+  // Optional safety: don't allow admin to delete themselves
+  if (String(req.user?._id) === String(id)) {
+    return res.status(400).json({ message: "You cannot delete your own account" });
   }
+
+  const user = await User.findByIdAndDelete(id);
+  if (!user) return res.status(404).json({ message: "User not found" });
 
   res.json({ message: "User deleted" });
 };
