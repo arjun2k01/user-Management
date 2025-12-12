@@ -1,22 +1,32 @@
-// client/src/main.jsx
+// src/main.jsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import App from "./App.jsx";
-import "./index.css";
-import { ThemeProvider } from "./ThemeContext.jsx";
-import { AuthProvider } from "./AuthContext.jsx";
 import { Toaster } from "react-hot-toast";
+
+import App from "./App";
+import { AuthProvider } from "./context/AuthContext";
+import ErrorBoundary from "./components/common/ErrorBoundary";
+
+import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
           <App />
-          <Toaster position="top-right" toastOptions={{ duration: 2500 }} />
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 3000,
+              style: {
+                fontSize: "13px",
+              },
+            }}
+          />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );

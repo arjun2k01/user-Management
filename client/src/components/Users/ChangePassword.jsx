@@ -5,8 +5,9 @@ import toast from "react-hot-toast";
 import { API_URL } from "../../config";
 import PasswordStrength from "../Auth/PasswordStrength";
 import { Lock } from "lucide-react";
+import { notifyUnauthorized } from "../../lib/authEvents";
 
-const ChangePassword = ({ onUnauthorized }) => {
+const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -35,12 +36,14 @@ const ChangePassword = ({ onUnauthorized }) => {
         }),
       });
 
-      const data = await res.json();
-
+      // ✅ Enterprise: global session-expired UX
       if (res.status === 401 || res.status === 403) {
-        onUnauthorized?.();
+        const data = await res.json().catch(() => ({}));
+        notifyUnauthorized(data.message || "Unauthorized");
         return;
       }
+
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         throw new Error(data.message || "Failed to update password");

@@ -1,7 +1,8 @@
 // src/context/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { API_URL } from "./config";
+import { API_URL } from "../config";
 import toast from "react-hot-toast";
+import { AUTH_UNAUTHORIZED_EVENT } from "../lib/authEvents";
 
 const AuthContext = createContext(null);
 
@@ -39,23 +40,23 @@ export const AuthProvider = ({ children }) => {
 
         if (cancelled) return;
 
-        // ✅ if not logged in, clear stale localStorage user
         if (res.status === 401) {
+          // Not logged in
           saveUser(null);
           setLoading(false);
           return;
         }
 
         if (!res.ok) {
-          // other server errors – don't wipe user aggressively
+          // keep existing user if any (temporary server issue)
           setLoading(false);
           return;
         }
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (data?.user) saveUser(data.user);
       } catch {
-        // network error: keep existing user if present
+        // network error: keep existing user if any
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -69,8 +70,25 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ✅ Enterprise: Global session-expired handling
+  useEffect(() => {
+    const handler = (e) => {
+      // prevent repeated spam if many requests fail at once
+      saveUser(null);
+
+      const reason = e?.detail?.reason || "";
+      toast.error(reason ? `Session expired: ${reason}` : "Session expired. Please log in again.");
+
+      // hard redirect ensures clean state even if route guards are buggy
+      window.location.href = "/login";
+    };
+
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handler);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const login = (userData) => {
-    // Call this after successful /auth/login response
     saveUser(userData);
   };
 
@@ -88,6 +106,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     toast.success("Logged out");
+    window.location.href = "/login";
   };
 
   const value = useMemo(() => {
