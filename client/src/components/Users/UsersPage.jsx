@@ -12,7 +12,7 @@ import { Download, Users, UserCheck, ShieldHalf, AlertTriangle } from "lucide-re
 import { notifyUnauthorized } from "../../lib/authEvents";
 import { downloadCsv } from "../../lib/exportCsv";
 
-import AuditLog from "../Audit/AuditLog";
+import AuditLog from "../AuditLog";
 
 import {
   AreaChart,
