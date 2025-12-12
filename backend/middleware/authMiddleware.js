@@ -10,15 +10,13 @@ export const protect = async (req, res, next) => {
     const user = await User.findById(decoded.id);
 
     if (!user) return res.status(401).json({ message: "User no longer exists" });
-
-    // ✅ block disabled users on every request (not just login)
     if (user.status === "disabled") {
       return res.status(403).json({ message: "Your account has been disabled" });
     }
 
     req.user = user;
     next();
-  } catch (err) {
+  } catch (e) {
     return res.status(401).json({ message: "Invalid or expired token" });
   }
 };
@@ -29,4 +27,3 @@ export const restrictTo = (...roles) => (req, res, next) => {
   }
   next();
 };
-export default protect;
