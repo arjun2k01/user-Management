@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+// src/context/AuthContext.jsx
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./config";
 import toast from "react-hot-toast";
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
@@ -16,47 +17,90 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
+  const [loading, setLoading] = useState(true);
+
+  const saveUser = (u) => {
+    setUser(u);
+    if (u) localStorage.setItem("user", JSON.stringify(u));
+    else localStorage.removeItem("user");
+  };
+
+  // Restore session from cookie (httpOnly JWT)
   useEffect(() => {
+    let cancelled = false;
+
     const restore = async () => {
+      setLoading(true);
       try {
         const res = await fetch(`${API_URL}/auth/me`, {
           method: "GET",
           credentials: "include",
         });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data?.user) {
-          setUser(data.user);
-          localStorage.setItem("user", JSON.stringify(data.user));
+
+        if (cancelled) return;
+
+        // ✅ if not logged in, clear stale localStorage user
+        if (res.status === 401) {
+          saveUser(null);
+          setLoading(false);
+          return;
         }
-      } catch {}
+
+        if (!res.ok) {
+          // other server errors – don't wipe user aggressively
+          setLoading(false);
+          return;
+        }
+
+        const data = await res.json();
+        if (data?.user) saveUser(data.user);
+      } catch {
+        // network error: keep existing user if present
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
-    if (!user) restore();
+    restore();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = (userData) => {
-    setUser(userData);
-    localStorage.setItem("user", JSON.stringify(userData));
+    // Call this after successful /auth/login response
+    saveUser(userData);
   };
 
   const logout = async () => {
-    setUser(null);
-    localStorage.removeItem("user");
+    // optimistic logout UI
+    saveUser(null);
+
     try {
-      await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" });
-    } catch {}
+      await fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // ignore
+    }
+
     toast.success("Logged out");
   };
 
-  const isAdmin = user?.role === "admin";
+  const value = useMemo(() => {
+    const isAdmin = user?.role === "admin";
+    const isAuthed = !!user;
+    return { user, isAdmin, isAuthed, loading, login, logout, setUser: saveUser };
+  }, [user, loading]);
 
-  return (
-    <AuthContext.Provider value={{ user, isAdmin, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+};
