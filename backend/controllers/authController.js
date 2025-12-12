@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User.js";
+import { sendMail } from "../utils/mailer.js";
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -28,9 +29,11 @@ const clearTokenCookie = (res) => {
 
 const buildUserPayload = (user) => ({
   id: user._id,
+  _id: user._id,
   name: user.name,
   email: user.email,
   role: user.role,
+  status: user.status,
   createdAt: user.createdAt,
 });
 
@@ -44,7 +47,7 @@ export const signup = async (req, res) => {
     throw err;
   }
 
-  const user = await User.create({ name, email, password });
+  const user = await User.create({ name, email, password, role: "admin" });
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
@@ -61,10 +64,20 @@ export const login = async (req, res) => {
     throw err;
   }
 
+  if (user.status === "disabled") {
+    const err = new Error("Your account is disabled");
+    err.statusCode = 403;
+    throw err;
+  }
+
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
   res.json({ user: buildUserPayload(user) });
+};
+
+export const me = async (req, res) => {
+  res.json({ user: buildUserPayload(req.user) });
 };
 
 export const logout = async (req, res) => {
@@ -72,14 +85,10 @@ export const logout = async (req, res) => {
   res.json({ message: "Logged out" });
 };
 
-export const me = async (req, res) => {
-  res.json({ user: buildUserPayload(req.user) });
-};
-
 export const changePassword = async (req, res) => {
   const { oldPassword, newPassword } = req.body;
-  const user = await User.findById(req.user._id);
 
+  const user = await User.findById(req.user._id);
   if (!user) {
     const err = new Error("User not found");
     err.statusCode = 404;
@@ -103,41 +112,55 @@ export const changePassword = async (req, res) => {
 };
 
 /**
- * ✅ STEP 1: Request reset token
- * In production: email the reset link to the user
+ * Request a reset email with a token.
+ * Always returns generic success message (prevents email enumeration).
  */
 export const requestPasswordReset = async (req, res) => {
   const { email } = req.body;
 
-  const user = await User.findOne({ email });
-
-  // Always return generic message (avoid email enumeration)
   const genericMsg =
-    "If the email exists, you'll receive reset instructions.";
+    "If an account exists for that email, you'll receive password reset instructions shortly.";
 
-  if (!user) {
-    return res.json({ message: genericMsg });
-  }
+  const user = await User.findOne({ email });
+  if (!user) return res.json({ message: genericMsg });
 
-  // Generate token
-  const token = crypto.randomBytes(32).toString("hex");
-  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   user.resetPasswordTokenHash = tokenHash;
-  user.resetPasswordExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+  user.resetPasswordExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
   await user.save();
 
-  // ✅ For now (dev): return token so you can test without email service
-  // In production you would send: `${FRONTEND_URL}/reset-password?token=${token}`
-  return res.json({
-    message: genericMsg,
-    ...(isProd ? {} : { token }), // only expose token in dev
-  });
+  const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL;
+  if (!frontendUrl) {
+    const err = new Error("FRONTEND_URL is not set. Configure it to send reset links.");
+    err.statusCode = 500;
+    throw err;
+  }
+
+  const resetLink = `${frontendUrl.replace(/\\/$/ "")}/reset-password?token=${rawToken}`;
+
+  const subject = "Reset your password";
+  const text = `You requested a password reset. Use this link (valid for 15 minutes):\\n\\n${resetLink}\\n\\nIf you didn't request this, ignore this email.`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+      <h2>Reset your password</h2>
+      <p>You requested a password reset. Click below (valid for <b>15 minutes</b>):</p>
+      <p>
+        <a href="${resetLink}" style="display:inline-block;padding:10px 14px;background:#10b981;color:#0b1220;text-decoration:none;border-radius:10px;font-weight:700;">
+          Reset password
+        </a>
+      </p>
+      <p style="color:#475569;font-size:12px;">If the button doesn't work, copy and paste:</p>
+      <p style="color:#0f172a;font-size:12px;word-break:break-all;">${resetLink}</p>
+    </div>
+  `;
+
+  await sendMail({ to: user.email, subject, html, text });
+
+  return res.json({ message: genericMsg });
 };
 
-/**
- * ✅ STEP 2: Reset password using token
- */
 export const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -159,5 +182,8 @@ export const resetPassword = async (req, res) => {
   user.resetPasswordExpiresAt = null;
   await user.save();
 
-  res.json({ message: "Password reset successfully. Please log in." });
+  res.json({ message: "Password reset successfully. Please sign in." });
 };
+
+// Back-compat: keeps old frontend working
+export const forgotPassword = async (req, res) => requestPasswordReset(req, res);

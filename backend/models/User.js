@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema(
       default: "active",
     },
 
-    // ✅ Password reset (secure flow)
+    // Password reset (token-based, production grade)
     resetPasswordTokenHash: { type: String, default: null },
     resetPasswordExpiresAt: { type: Date, default: null },
   },

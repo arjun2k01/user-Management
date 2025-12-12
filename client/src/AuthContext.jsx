@@ -1,5 +1,6 @@
-// client/src/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { API_URL } from "./config";
+import toast from "react-hot-toast";
 
 const AuthContext = createContext();
 
@@ -16,20 +17,37 @@ export const AuthProvider = ({ children }) => {
   });
 
   useEffect(() => {
-    if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("user");
-    }
-  }, [user]);
+    const restore = async () => {
+      try {
+        const res = await fetch(`${API_URL}/auth/me`, {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.user) {
+          setUser(data.user);
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
+      } catch {}
+    };
+
+    if (!user) restore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const login = (userData) => {
     setUser(userData);
+    localStorage.setItem("user", JSON.stringify(userData));
   };
 
-  const logout = () => {
+  const logout = async () => {
     setUser(null);
     localStorage.removeItem("user");
+    try {
+      await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" });
+    } catch {}
+    toast.success("Logged out");
   };
 
   const isAdmin = user?.role === "admin";

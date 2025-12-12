@@ -4,9 +4,10 @@ import {
   login,
   logout,
   changePassword,
-  me,
+  forgotPassword,
   requestPasswordReset,
   resetPassword,
+  me,
 } from "../controllers/authController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
@@ -22,24 +23,11 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 
 const router = express.Router();
 
-router.post(
-  "/signup",
-  authLimiter,
-  ...validateSignup,
-  handleValidationErrors,
-  asyncHandler(signup)
-);
+router.post("/signup", authLimiter, ...validateSignup, handleValidationErrors, asyncHandler(signup));
+router.post("/login", authLimiter, ...validateLogin, handleValidationErrors, asyncHandler(login));
 
-router.post(
-  "/login",
-  authLimiter,
-  ...validateLogin,
-  handleValidationErrors,
-  asyncHandler(login)
-);
-
-router.post("/logout", authMiddleware, asyncHandler(logout));
 router.get("/me", authMiddleware, asyncHandler(me));
+router.post("/logout", authMiddleware, asyncHandler(logout));
 
 router.post(
   "/change-password",
@@ -49,7 +37,6 @@ router.post(
   asyncHandler(changePassword)
 );
 
-// ✅ New secure reset flow
 router.post(
   "/request-password-reset",
   authLimiter,
@@ -65,5 +52,8 @@ router.post(
   handleValidationErrors,
   asyncHandler(resetPassword)
 );
+
+// Back-compat
+router.post("/forgot-password", authLimiter, asyncHandler(forgotPassword));
 
 export default router;

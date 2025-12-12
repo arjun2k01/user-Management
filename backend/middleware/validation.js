@@ -37,17 +37,6 @@ export const validateUserUpdate = [
     .withMessage("Invalid status"),
 ];
 
-
-
-export const handleValidationErrors = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    const err = new Error(errors.array()[0].msg);
-    err.statusCode = 400;
-    return next(err);
-  }
-  next();
-};
 export const validateRequestReset = [
   body("email").isEmail().withMessage("Valid email is required"),
 ];
@@ -59,6 +48,17 @@ export const validateResetPassword = [
     .isLength({ min: 6 })
     .withMessage("New password must be at least 6 characters"),
 ];
+
+
+export const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    const err = new Error(errors.array()[0].msg);
+    err.statusCode = 400;
+    return next(err);
+  }
+  next();
+};
 
 
 
