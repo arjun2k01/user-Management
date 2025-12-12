@@ -1,63 +1,58 @@
-import React, { useState } from "react";
-import { API_URL } from "../../config";
+// src/components/Users/ChangePassword.jsx
+import { useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Lock,
-  CheckCircle2,
-  XCircle,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import toast from "react-hot-toast";
+import { API_URL } from "../../config";
+import PasswordStrength from "../Auth/PasswordStrength";
+import { Lock } from "lucide-react";
 
 const ChangePassword = ({ onUnauthorized }) => {
-  const [form, setForm] = useState({
-    oldPassword: "",
-    newPassword: "",
-  });
-  const [showOld, setShowOld] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [status, setStatus] = useState({ type: "", message: "" });
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setStatus({ type: "", message: "" });
-    setLoading(true);
 
+    if (newPassword.length < 8) {
+      return toast.error("Password must be at least 8 characters long");
+    }
+
+    if (newPassword !== confirmPassword) {
+      return toast.error("New passwords do not match");
+    }
+
+    setLoading(true);
     try {
       const res = await fetch(`${API_URL}/auth/change-password`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
       });
 
       const data = await res.json();
 
       if (res.status === 401 || res.status === 403) {
         onUnauthorized?.();
-        throw new Error("Session expired. Please log in again.");
+        return;
       }
 
       if (!res.ok) {
-        throw new Error(data.message || "Failed to change password");
+        throw new Error(data.message || "Failed to update password");
       }
 
-      setStatus({ type: "success", message: "Password updated successfully." });
-      setForm({ oldPassword: "", newPassword: "" });
+      toast.success("Password updated successfully");
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
     } catch (err) {
-      console.error(err);
-      setStatus({
-        type: "error",
-        message: err.message || "Could not change password.",
-      });
+      toast.error(err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -65,99 +60,69 @@ const ChangePassword = ({ onUnauthorized }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -8 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="rounded-3xl border border-slate-200/70 dark:border-white/10 bg-white/95 dark:bg-slate-950/90 px-4 py-3 shadow-sm dark:shadow-md max-w-sm"
+      className="rounded-3xl border border-slate-200/70 dark:border-white/10 bg-white dark:bg-slate-950/90 shadow-sm p-4"
     >
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="h-7 w-7 rounded-full bg-violet-500/10 flex items-center justify-center">
-            <Lock className="w-4 h-4 text-violet-500" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-900 dark:text-slate-50">
-              Change password
-            </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">
-              Update your account password securely.
-            </p>
-          </div>
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50 flex items-center gap-2">
+        <Lock className="h-4 w-4 text-emerald-500" />
+        Change password
+      </h3>
+      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+        Use a strong, unique password you don’t use anywhere else.
+      </p>
+
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+        <div>
+          <label className="block text-[11px] font-medium text-slate-500 mb-1">
+            Current password
+          </label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            required
+          />
         </div>
 
-        {/* Old password */}
-        <div className="relative">
+        <div>
+          <label className="block text-[11px] font-medium text-slate-500 mb-1">
+            New password
+          </label>
           <input
-            type={showOld ? "text" : "password"}
-            name="oldPassword"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            minLength={8}
             required
-            value={form.oldPassword}
-            onChange={handleChange}
-            placeholder="Old password"
-            className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 py-2 px-3 pr-9 text-[11px] text-slate-900 dark:text-slate-50 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
           />
-          <button
-            type="button"
-            onClick={() => setShowOld((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-          >
-            {showOld ? (
-              <EyeOff className="w-3.5 h-3.5" />
-            ) : (
-              <Eye className="w-3.5 h-3.5" />
-            )}
-          </button>
+          <PasswordStrength password={newPassword} />
         </div>
 
-        {/* New password */}
-        <div className="relative">
+        <div>
+          <label className="block text-[11px] font-medium text-slate-500 mb-1">
+            Confirm new password
+          </label>
           <input
-            type={showNew ? "text" : "password"}
-            name="newPassword"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            minLength={8}
             required
-            minLength={6}
-            value={form.newPassword}
-            onChange={handleChange}
-            placeholder="New password"
-            className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 py-2 px-3 pr-9 text-[11px] text-slate-900 dark:text-slate-50 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
           />
-          <button
-            type="button"
-            onClick={() => setShowNew((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-          >
-            {showNew ? (
-              <EyeOff className="w-3.5 h-3.5" />
-            ) : (
-              <Eye className="w-3.5 h-3.5" />
-            )}
-          </button>
         </div>
 
         <button
           type="submit"
           disabled={loading}
-          className="mt-1 inline-flex items-center justify-center rounded-2xl bg-violet-500 text-[11px] font-semibold text-white px-4 py-1.5 hover:bg-violet-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-sm font-medium py-2 transition"
         >
-          {loading ? "Updating…" : "Update"}
+          {loading ? "Updating..." : "Update password"}
         </button>
-
-        {status.message && (
-          <div
-            className={`mt-1 flex items-center gap-1.5 text-[10px] ${
-              status.type === "success"
-                ? "text-emerald-600 dark:text-emerald-300"
-                : "text-rose-600 dark:text-rose-300"
-            }`}
-          >
-            {status.type === "success" ? (
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            ) : (
-              <XCircle className="w-3.5 h-3.5" />
-            )}
-            <span>{status.message}</span>
-          </div>
-        )}
       </form>
     </motion.div>
   );
