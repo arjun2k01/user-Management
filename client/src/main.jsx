@@ -8,7 +8,7 @@ import App from "./App";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 
 import { ThemeProvider } from "./ThemeContext";
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider } from "./AuthContext";
 
 import "./index.css";
 
