@@ -1,6 +1,6 @@
 // src/context/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { API_URL } from "../config";
+import { API_URL } from "./config";
 import toast from "react-hot-toast";
 import { AUTH_UNAUTHORIZED_EVENT } from "../lib/authEvents";
 
