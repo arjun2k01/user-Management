@@ -1,3 +1,4 @@
+// backend/app.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -88,7 +89,6 @@ app.get("/health", (req, res) =>
   })
 );
 
-// Error handler
 app.use(errorHandler);
 
 export default app;

@@ -1,9 +1,9 @@
+// backend/controllers/authController.js
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { validatePasswordStrength } from "../utils/validatePasswordStrength.js";
-
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -15,7 +15,7 @@ const setTokenCookie = (res, token) => {
   res.cookie("token", token, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax", // important for Vercel+Render cross-site cookies
+    sameSite: isProd ? "none" : "lax", // cross-site cookie for Vercel+Render
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
@@ -37,50 +37,59 @@ const resolveRoleOnSignup = async (email) => {
   if (!allow || !firstAdminEmail) return "user";
   if (email.trim().toLowerCase() !== firstAdminEmail) return "user";
 
-  // allow only if no admin exists yet
   const adminExists = await User.exists({ role: "admin" });
   if (adminExists) return "user";
   return "admin";
 };
 
-export const signup = async (req, res) => {
-  const { name, email, password } = req.body;
+export const signup = async (req, res, next) => {
+  try {
+    const { name, email, password } = req.body;
 
-  // ✅ stronger password validation
-  const pwCheck = validatePasswordStrength(password);
-  if (!pwCheck.ok) {
-    return res.status(400).json({ message: pwCheck.message });
+    const pwCheck = validatePasswordStrength(password);
+    if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
+
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ message: "Email is already registered" });
+
+    const role = await resolveRoleOnSignup(email);
+
+    const user = await User.create({ name, email, password, role });
+    const token = signToken(user._id);
+    setTokenCookie(res, token);
+
+    res.status(201).json({
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, status: user.status },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const existing = await User.findOne({ email });
-  if (existing) return res.status(400).json({ message: "Email is already registered" });
-
-  const role = await resolveRoleOnSignup(email);
-
-  const user = await User.create({ name, email, password, role });
-  const token = signToken(user._id);
-  setTokenCookie(res, token);
-
-  res.status(201).json({ user: { id: user._id, name: user.name, email: user.email, role: user.role } });
 };
 
-export const login = async (req, res) => {
-  const { email, password } = req.body;
+export const login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({ email }).select("+password");
-  if (!user) return res.status(401).json({ message: "Invalid email or password" });
+    const user = await User.findOne({ email }).select("+password");
+    if (!user) return res.status(401).json({ message: "Invalid email or password" });
 
-  if (user.status === "disabled") {
-    return res.status(403).json({ message: "Your account has been disabled" });
+    if (user.status === "disabled") {
+      return res.status(403).json({ message: "Your account has been disabled" });
+    }
+
+    // ✅ This will now work because User model defines correctPassword()
+    const ok = await user.correctPassword(password);
+    if (!ok) return res.status(401).json({ message: "Invalid email or password" });
+
+    const token = signToken(user._id);
+    setTokenCookie(res, token);
+
+    res.json({
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, status: user.status },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const ok = await user.correctPassword(password);
-  if (!ok) return res.status(401).json({ message: "Invalid email or password" });
-
-  const token = signToken(user._id);
-  setTokenCookie(res, token);
-
-  res.json({ user: { id: user._id, name: user.name, email: user.email, role: user.role, status: user.status } });
 };
 
 export const logout = async (req, res) => {
@@ -102,82 +111,90 @@ export const getMe = async (req, res) => {
 
 // ======== RESET PASSWORD (production UX) ========
 
-export const forgotPassword = async (req, res) => {
-  const { email } = req.body;
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
 
-  const user = await User.findOne({ email });
-  // Always respond success (no account enumeration)
-  if (!user) return res.json({ message: "If an account exists, a reset link has been sent." });
+    const user = await User.findOne({ email });
+    if (!user) return res.json({ message: "If an account exists, a reset link has been sent." });
 
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  user.passwordResetToken = hashedToken;
-  user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 min
-  await user.save({ validateBeforeSave: false });
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = Date.now() + 15 * 60 * 1000;
+    await user.save({ validateBeforeSave: false });
 
-  const frontend = process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
-  const resetUrl = `${frontend.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
+    const frontend = process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
+    const resetUrl = `${frontend.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
 
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.6">
-      <h2>Password reset</h2>
-      <p>You requested a password reset. Click the link below to set a new password.</p>
-      <p><a href="${resetUrl}" target="_blank" rel="noreferrer">Reset your password</a></p>
-      <p>This link will expire in 15 minutes.</p>
-      <p>If you didn’t request this, you can ignore this email.</p>
-    </div>
-  `;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.6">
+        <h2>Password reset</h2>
+        <p>You requested a password reset. Click the link below to set a new password.</p>
+        <p><a href="${resetUrl}" target="_blank" rel="noreferrer">Reset your password</a></p>
+        <p>This link will expire in 15 minutes.</p>
+        <p>If you didn’t request this, you can ignore this email.</p>
+      </div>
+    `;
 
-  await sendEmail({
-    to: user.email,
-    subject: "Reset your password",
-    html,
-  });
+    await sendEmail({ to: user.email, subject: "Reset your password", html });
 
-  res.json({ message: "If an account exists, a reset link has been sent." });
+    res.json({ message: "If an account exists, a reset link has been sent." });
+  } catch (err) {
+    next(err);
+  }
 };
 
-export const resetPassword = async (req, res) => {
-  const { token, password } = req.body;
-  if (!token) return res.status(400).json({ message: "Token is required" });
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token) return res.status(400).json({ message: "Token is required" });
 
-  const pwCheck = validatePasswordStrength(password);
-  if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
+    const pwCheck = validatePasswordStrength(password);
+    if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
 
-  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
-  }).select("+password");
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    }).select("+password");
 
-  if (!user) return res.status(400).json({ message: "Token is invalid or has expired" });
+    if (!user) return res.status(400).json({ message: "Token is invalid or has expired" });
 
-  user.password = password;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
-  await user.save();
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
 
-  // Auto-login after reset
-  const jwtToken = signToken(user._id);
-  setTokenCookie(res, jwtToken);
+    const jwtToken = signToken(user._id);
+    setTokenCookie(res, jwtToken);
 
-  res.json({ message: "Password reset successful" });
+    res.json({ message: "Password reset successful" });
+  } catch (err) {
+    next(err);
+  }
 };
 
-export const changePassword = async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
 
-  const pwCheck = validatePasswordStrength(newPassword);
-  if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
+    const pwCheck = validatePasswordStrength(newPassword);
+    if (!pwCheck.ok) return res.status(400).json({ message: pwCheck.message });
 
-  const user = await User.findById(req.user._id).select("+password");
-  const ok = await user.correctPassword(currentPassword);
-  if (!ok) return res.status(401).json({ message: "Current password is incorrect" });
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-  user.password = newPassword;
-  await user.save();
+    const ok = await user.correctPassword(currentPassword);
+    if (!ok) return res.status(401).json({ message: "Current password is incorrect" });
 
-  res.json({ message: "Password updated successfully" });
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    next(err);
+  }
 };
