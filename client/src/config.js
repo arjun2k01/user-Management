@@ -1,4 +1,6 @@
-// Change this in .env for production
-// VITE_API_URL=https://your-backend-domain.com/api
+// src/config.js
 export const API_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.MODE === "production"
+    ? "https://user-management-uxdt.onrender.com/api"
+    : "http://localhost:5000/api");
