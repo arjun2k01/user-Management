@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import User from "../models/User.js";
 
 const signToken = (id) =>
@@ -11,9 +12,9 @@ const isProd = process.env.NODE_ENV === "production";
 const setTokenCookie = (res, token) => {
   res.cookie("token", token, {
     httpOnly: true,
-    secure: isProd,                   // 🔑 required with SameSite: "none"
-    sameSite: isProd ? "none" : "lax", // 🔑 allows cross-site cookies in prod
-    maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
 
@@ -71,6 +72,10 @@ export const logout = async (req, res) => {
   res.json({ message: "Logged out" });
 };
 
+export const me = async (req, res) => {
+  res.json({ user: buildUserPayload(req.user) });
+};
+
 export const changePassword = async (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const user = await User.findById(req.user._id);
@@ -91,16 +96,68 @@ export const changePassword = async (req, res) => {
   user.password = newPassword;
   await user.save();
 
-  // Optional: issue a fresh token after password change
   const token = signToken(user._id);
   setTokenCookie(res, token);
 
   res.json({ message: "Password updated successfully" });
 };
 
-// You can implement real email flow later
-export const forgotPassword = async (req, res) => {
-  res.json({
-    message: "Password reset instructions would be sent in a real system.",
+/**
+ * ✅ STEP 1: Request reset token
+ * In production: email the reset link to the user
+ */
+export const requestPasswordReset = async (req, res) => {
+  const { email } = req.body;
+
+  const user = await User.findOne({ email });
+
+  // Always return generic message (avoid email enumeration)
+  const genericMsg =
+    "If the email exists, you'll receive reset instructions.";
+
+  if (!user) {
+    return res.json({ message: genericMsg });
+  }
+
+  // Generate token
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  user.resetPasswordTokenHash = tokenHash;
+  user.resetPasswordExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+  await user.save();
+
+  // ✅ For now (dev): return token so you can test without email service
+  // In production you would send: `${FRONTEND_URL}/reset-password?token=${token}`
+  return res.json({
+    message: genericMsg,
+    ...(isProd ? {} : { token }), // only expose token in dev
   });
+};
+
+/**
+ * ✅ STEP 2: Reset password using token
+ */
+export const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  const user = await User.findOne({
+    resetPasswordTokenHash: tokenHash,
+    resetPasswordExpiresAt: { $gt: new Date() },
+  });
+
+  if (!user) {
+    const err = new Error("Reset token is invalid or expired");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  user.password = newPassword;
+  user.resetPasswordTokenHash = null;
+  user.resetPasswordExpiresAt = null;
+  await user.save();
+
+  res.json({ message: "Password reset successfully. Please log in." });
 };

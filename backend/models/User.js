@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema(
       enum: ["active", "pending", "disabled"],
       default: "active",
     },
+
+    // ✅ Password reset (secure flow)
+    resetPasswordTokenHash: { type: String, default: null },
+    resetPasswordExpiresAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -40,6 +44,8 @@ userSchema.methods.comparePassword = async function (candidate) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.resetPasswordTokenHash;
+  delete obj.resetPasswordExpiresAt;
   return obj;
 };
 

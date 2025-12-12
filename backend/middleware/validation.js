@@ -1,5 +1,5 @@
 import { body, param, validationResult } from "express-validator";
-
+import { body, validationResult } from "express-validator";
 export const validateSignup = [
   body("name").trim().notEmpty().withMessage("Name is required"),
   body("email").isEmail().withMessage("Valid email is required"),
@@ -37,17 +37,28 @@ export const validateUserUpdate = [
     .withMessage("Invalid status"),
 ];
 
+
+
 export const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    const err = new Error(
-      errors
-        .array()
-        .map((e) => e.msg)
-        .join(", ")
-    );
+    const err = new Error(errors.array()[0].msg);
     err.statusCode = 400;
     return next(err);
   }
   next();
 };
+export const validateRequestReset = [
+  body("email").isEmail().withMessage("Valid email is required"),
+];
+
+export const validateResetPassword = [
+  body("token").isString().isLength({ min: 20 }).withMessage("Token is required"),
+  body("newPassword")
+    .isString()
+    .isLength({ min: 6 })
+    .withMessage("New password must be at least 6 characters"),
+];
+
+
+

@@ -4,7 +4,9 @@ import {
   login,
   logout,
   changePassword,
-  forgotPassword,
+  me,
+  requestPasswordReset,
+  resetPassword,
 } from "../controllers/authController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
@@ -12,6 +14,8 @@ import {
   validateSignup,
   validateLogin,
   validateChangePassword,
+  validateRequestReset,
+  validateResetPassword,
   handleValidationErrors,
 } from "../middleware/validation.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
@@ -35,6 +39,7 @@ router.post(
 );
 
 router.post("/logout", authMiddleware, asyncHandler(logout));
+router.get("/me", authMiddleware, asyncHandler(me));
 
 router.post(
   "/change-password",
@@ -44,6 +49,21 @@ router.post(
   asyncHandler(changePassword)
 );
 
-router.post("/forgot-password", authLimiter, asyncHandler(forgotPassword));
+// ✅ New secure reset flow
+router.post(
+  "/request-password-reset",
+  authLimiter,
+  ...validateRequestReset,
+  handleValidationErrors,
+  asyncHandler(requestPasswordReset)
+);
+
+router.post(
+  "/reset-password",
+  authLimiter,
+  ...validateResetPassword,
+  handleValidationErrors,
+  asyncHandler(resetPassword)
+);
 
 export default router;
