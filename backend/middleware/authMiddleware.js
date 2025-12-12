@@ -29,3 +29,4 @@ export const restrictTo = (...roles) => (req, res, next) => {
   }
   next();
 };
+export default protect;

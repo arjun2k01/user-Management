@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { validatePasswordStrength } from "../utils/validatePasswordStrength.js";
 
+
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
